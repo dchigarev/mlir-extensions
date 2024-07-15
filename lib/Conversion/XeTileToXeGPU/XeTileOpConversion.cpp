@@ -270,9 +270,10 @@ class SgTileUnpackOpPattern
     // which is applied to load for dpas.
     auto loadOp = op.getInVec().getDefiningOp<xetile::LoadTileOp>();
     auto elemTy = op.getInVec().getType().getElementType();
+    bool isDpasA = loadOp && isForDPASA(loadOp);
     bool isDpasB = loadOp && isForDPASB(loadOp);
-    bool isVnniFormat =
-        isDpasB && elemTy.isIntOrFloat() && elemTy.getIntOrFloatBitWidth() < 32;
+    bool isVnniFormat = (isDpasA || isDpasB) && elemTy.isIntOrFloat() &&
+                        elemTy.getIntOrFloatBitWidth() < 32;
 
     // the default grids used as outGrids when unpack is not paired with a pack
     int64_t defautlOutGrids[2] = {1, 1};
@@ -551,13 +552,16 @@ struct SgLoadTileOpPattern
     auto L3 = mlir::xegpu::CachePolicyAttr::get(
         ctx, mlir::xegpu::CachePolicy::CACHED);
 
-    mlir::UnitAttr vnniAttr = nullptr;
+    mlir::IntegerAttr vnniAttr;
     mlir::IntegerAttr transposeBitWidthAttr;
     // TODO: move these two into architecture abstracture in future.
     const int SIMD_WIDTH_IN_BITS = 32;
     int factor = SIMD_WIDTH_IN_BITS / elemTy.getIntOrFloatBitWidth();
-    if (isForDPASB(op) && factor > 1)
-      vnniAttr = mlir::UnitAttr::get(ctx);
+    if ((isForDPASA(op) || isForDPASB(op)) && factor > 1) {
+      // vnni transform needed if they are used in mma and elemTy bits < 32
+      int axis = isForDPASB(op) ? 0 : 1;
+      vnniAttr = rewriter.getI64IntegerAttr(axis);
+    }
 
     mlir::DenseI64ArrayAttr transposeAttr;
     auto srcOrder = tileTy.getOrder();
@@ -567,7 +571,7 @@ struct SgLoadTileOpPattern
       auto elemWidth = elemTy.getIntOrFloatBitWidth();
       if (elemWidth == 32) {
         transposeAttr = rewriter.getDenseI64ArrayAttr({1, 0});
-      } else if (elemWidth == 16 && vnniAttr) {
+      } else if (elemWidth == 16 && vnniAttr && vnniAttr.getInt() == 0) {
         transposeAttr = rewriter.getDenseI64ArrayAttr({1, 0});
         transposeBitWidthAttr = rewriter.getI32IntegerAttr(32);
         vnniAttr = nullptr;
@@ -591,8 +595,12 @@ struct SgLoadTileOpPattern
       if (transposeAttr)
         std::swap(shape[0], shape[1]);
 
-      if (vnniAttr || transposeBitWidthAttr) {
-        const int axis = 0;
+      if (vnniAttr) {
+        auto axis = vnniAttr.getInt();
+        shape[axis] /= factor;
+        shape.push_back(factor);
+      } else if (transposeBitWidthAttr) {
+        auto axis = 0;
         shape[axis] /= factor;
         shape.push_back(factor);
       }
