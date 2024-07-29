@@ -217,30 +217,31 @@ public:
   LogicalResult
   matchAndRewrite(mlir::xegpu::UpdateNdOffsetOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
     auto loc = op.getLoc();
     auto i32Type = rewriter.getI32Type();
-    auto offsets = op.getOffsets();
-
+    auto offsets = op.getConstOffsets();
     // Get Payload
     auto desc = adaptor.getTensorDesc();
     for (size_t i = 0; i < offsets.size(); i++) {
       auto offset = offsets[i];
-      if (auto cst =
-              dyn_cast_if_present<arith::ConstantOp>(offset.getDefiningOp()))
-        if (auto attr = dyn_cast_if_present<mlir::IntegerAttr>(cst.getValue());
-            attr && attr.getInt() == 0)
-          continue;
-
+      int32_t offset32 = static_cast<int32_t>(offset);
+      // if (auto cst =
+      //         dyn_cast_if_present<arith::ConstantOp>(offset.getDefiningOp()))
+      //   if (auto attr = dyn_cast_if_present<mlir::IntegerAttr>(cst.getValue());
+      //       attr && attr.getInt() == 0)
+      //     continue;
       // Get 2D Block OffsetX / Offset Y from PayLoad DWORD 5 / DWORD6
       // respectively. Advance to new offset within 2D block Tile using input
       // offset.
       int32_t idx = i == 0 ? 6 : 5;
       auto oldOffset = rewriter.create<vector::ExtractOp>(loc, desc, idx);
-      offset = rewriter.create<arith::IndexCastUIOp>(loc, i32Type, offset);
-
-      auto newOffset = rewriter.create<arith::AddIOp>(loc, oldOffset, offset);
-
+      // offset = rewriter.create<arith::IndexCastUIOp>(loc, i32Type, offset);
+      mlir::Value offsetValue = rewriter.create<mlir::arith::ConstantOp>(
+        loc,
+        i32Type,
+        rewriter.getIntegerAttr(i32Type, offset32)
+      );
+      auto newOffset = rewriter.create<arith::AddIOp>(loc, oldOffset, offsetValue);
       // Update new 2D Block OffsetX/OffsetY in Payload descriptor.
       desc = rewriter.create<vector::InsertOp>(loc, newOffset, desc, idx);
     }

@@ -29,7 +29,7 @@ builtin.module(
     func.func(gpu-map-parallel-loops),
     func.func(convert-parallel-loops-to-gpu),
     // insert-gpu-allocs pass can have client-api = opencl or vulkan args
-    func.func(insert-gpu-allocs{in-regions=1}),
+    func.func(insert-gpu-allocs{client-api=opencl}),
     drop-regions,
     canonicalize,
     normalize-memrefs,
