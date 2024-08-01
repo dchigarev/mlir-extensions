@@ -783,7 +783,7 @@ class GatherScatterToRawSend : public OpConversionPattern<OpType> {
     payLoad = rewriter.create<vector::InsertOp>(loc, base, payLoad, 0);
     SmallVector<int64_t, 16> indices(16, 0);
     payLoad = rewriter.create<mlir::vector::ShuffleOp>(
-        loc, payLoad, payLoad, rewriter.getI64ArrayAttr(indices));
+        loc, payLoad, payLoad, indices);
     auto createDescOp =
         op.getTensorDesc().template getDefiningOp<xegpu::CreateDescOp>();
     auto offsets = rewriter.getRemappedValue(createDescOp.getOffsets());
@@ -886,7 +886,7 @@ public:
 
     SmallVector<int64_t, 16> indices(16, 0);
     payLoad = rewriter.create<mlir::vector::ShuffleOp>(
-        loc, payLoad, payLoad, rewriter.getI64ArrayAttr(indices));
+        loc, payLoad, payLoad, indices);
     auto createDescOp = op.getTensorDesc().getDefiningOp<xegpu::CreateDescOp>();
     auto offsets = rewriter.getRemappedValue(createDescOp.getOffsets());
     payLoad = rewriter.create<arith::AddIOp>(loc, payLoad, offsets);
@@ -1232,7 +1232,7 @@ struct VectorExtractVC final
       llvm::SmallVector<int64_t, 2> indices(size);
       std::iota(indices.begin(), indices.end(), linearizedOffset);
       rewriter.replaceOpWithNewOp<mlir::vector::ShuffleOp>(
-          extractOp, vec, vec, rewriter.getI64ArrayAttr(indices));
+          extractOp, vec, vec, indices);
     } else { // use CompositExtract for scalar result
       rewriter.replaceOpWithNewOp<mlir::vector::ExtractOp>(extractOp, vec,
                                                            linearizedOffset);
@@ -1338,7 +1338,7 @@ struct VectorExtractStridedSliceVC final
     }
     // perform a shuffle to extract the kD vector
     rewriter.replaceOpWithNewOp<vector::ShuffleOp>(
-        extractOp, srcVector, srcVector, rewriter.getI64ArrayAttr(indices));
+        extractOp, srcVector, srcVector, indices);
 
     return success();
   }
@@ -1392,16 +1392,16 @@ struct VectorShuffleVC final
 
     SmallVector<int64_t, 2> indices(totalSize);
     for (auto [i, value] :
-         llvm::enumerate(mask.getAsValueRange<IntegerAttr>())) {
+         llvm::enumerate(mask)) {
 
-      int32_t v = value.getZExtValue();
+      int32_t v = value;
       std::iota(indices.begin() + shuffleSliceLen * i,
                 indices.begin() + shuffleSliceLen * (i + 1),
                 shuffleSliceLen * v);
     }
 
     rewriter.replaceOpWithNewOp<vector::ShuffleOp>(
-        shuffleOp, vec1, vec2, rewriter.getI64ArrayAttr(indices));
+        shuffleOp, vec1, vec2, indices);
 
     return success();
   }

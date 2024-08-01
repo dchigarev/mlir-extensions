@@ -140,7 +140,7 @@ struct VectorExtractStridedSliceConversion final
       // perform a shuffle to extract the kD vector
       rewriter.replaceOpWithNewOp<mlir::vector::ShuffleOp>(
           extractOp, dstType, srcVector, srcVector,
-          rewriter.getI64ArrayAttr(indices));
+          indices);
     }
     return mlir::success();
   }
@@ -180,16 +180,16 @@ struct VectorShffleOpConversion final
 
     llvm::SmallVector<int64_t, 2> indices(totalSize);
     for (auto [i, value] :
-         llvm::enumerate(mask.getAsValueRange<mlir::IntegerAttr>())) {
+         llvm::enumerate(mask)) {
 
-      int64_t v = value.getZExtValue();
+      int64_t v = value;
       std::iota(indices.begin() + shuffleSliceLen * i,
                 indices.begin() + shuffleSliceLen * (i + 1),
                 shuffleSliceLen * v);
     }
 
     rewriter.replaceOpWithNewOp<mlir::vector::ShuffleOp>(
-        shuffleOp, dstType, vec1, vec2, rewriter.getI64ArrayAttr(indices));
+        shuffleOp, dstType, vec1, vec2, indices);
 
     return mlir::success();
   }
@@ -232,7 +232,7 @@ struct VectorExtractOpConversion final
       std::iota(indices.begin(), indices.end(), linearizedOffset);
       rewriter.replaceOpWithNewOp<mlir::vector::ShuffleOp>(
           extractOp, dstTy, adaptor.getVector(), adaptor.getVector(),
-          rewriter.getI64ArrayAttr(indices));
+          indices);
     }
 
     return mlir::success();
@@ -298,11 +298,11 @@ struct VectorInsertOpConversion final
               0);
     auto modifiedSource = rewriter.create<mlir::vector::ShuffleOp>(
         insertOp.getLoc(), dstTy, adaptor.getSource(), adaptor.getSource(),
-        rewriter.getI64ArrayAttr(modifiedSrcIndices));
+        modifiedSrcIndices);
 
     rewriter.replaceOpWithNewOp<mlir::vector::ShuffleOp>(
         insertOp, dstTy, adaptor.getDest(), modifiedSource,
-        rewriter.getI64ArrayAttr(indices));
+        indices);
 
     return mlir::success();
   }
