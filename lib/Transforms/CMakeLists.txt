@@ -24,7 +24,11 @@ add_mlir_library(IMEXTransforms
   MLIRSupport
   MLIRTransformUtils
   MLIRVectorTransforms
+  IMEXXeTileDialect
+  IMEXRegionDialect
 
   DEPENDS
   IMEXTransformsPassIncGen
+  IMEXXeTilePassIncGen
+  MLIRRegionOpsIncGen
 )

@@ -32,7 +32,7 @@ namespace {
 class SetSPIRVAbiAttributePass
     : public imex::impl::SetSPIRVAbiAttributeBase<SetSPIRVAbiAttributePass> {
 public:
-  explicit SetSPIRVAbiAttributePass() { m_clientAPI = "vulkan"; }
+  explicit SetSPIRVAbiAttributePass() { m_clientAPI = "opencl"; }
   explicit SetSPIRVAbiAttributePass(const mlir::StringRef &clientAPI)
       : m_clientAPI(clientAPI) {}
 

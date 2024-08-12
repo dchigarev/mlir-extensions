@@ -39,12 +39,32 @@ namespace imex {
 #include "imex/Transforms/Passes.h.inc"
 } // namespace imex
 
+
 namespace {
+
+bool getBoolFromEnv(const std::string& envVarName, bool defaultValue = false) {
+    const char* envValue = std::getenv(envVarName.c_str());
+
+    // If the environment variable is not set, return false by default
+    if (envValue == nullptr) {
+        return defaultValue;
+    }
+
+    std::string valueStr(envValue);
+    
+    // Convert the string to lower case for comparison
+    std::transform(valueStr.begin(), valueStr.end(), valueStr.begin(), ::tolower);
+
+    // Check for various representations of "true"
+    return (valueStr == "1" || valueStr == "true" || valueStr == "yes" || valueStr == "on");
+}
+
+
 class InsertGPUAllocsPass final
     : public imex::impl::InsertGPUAllocsBase<InsertGPUAllocsPass> {
 
 public:
-  explicit InsertGPUAllocsPass() : m_clientAPI("vulkan") {}
+  explicit InsertGPUAllocsPass() : m_clientAPI("opencl") {}
   explicit InsertGPUAllocsPass(const mlir::StringRef &clientAPI)
       : m_clientAPI(clientAPI) {}
 
@@ -411,6 +431,15 @@ public:
             use.set(newAlloc.getResult());
           }
         }
+
+        // remove 'memref.dealloc' (it's later replaced with gpu.dealloc)
+        auto memory = alloc->getResult(0);
+        for (auto u : memory.getUsers()) {
+          if (auto dealloc = mlir::dyn_cast<mlir::memref::DeallocOp>(u)) {
+            dealloc.erase();
+          }
+        }
+
         alloc.replaceAllUsesWith(allocResult);
         builder.create<mlir::gpu::DeallocOp>(loc, std::nullopt, allocResult);
         alloc.erase();
@@ -504,41 +533,47 @@ public:
     // This is the case where the inputs are globals contants and accessed using
     // memref.get_global op. This code will add the IR for memory allocation on
     // the device with gpu.alloc and insert a memref.copy from host to device.
-    for (auto &it : gpuGetMemrefGlobalParams) {
-      auto getGlobalOp = mlir::cast<mlir::memref::GetGlobalOp>(it.first);
-      auto access = getAccessType(getGlobalOp);
-      access.hostRead = true;
-      access.hostWrite = true;
-      builder.setInsertionPointAfter(getGlobalOp);
-      add_gpu_alloc(builder, getGlobalOp, access, term);
+    if (getBoolFromEnv("GPU_ALLOC_ALL", true)) {
+      for (auto &it : gpuGetMemrefGlobalParams) {
+        auto getGlobalOp = mlir::cast<mlir::memref::GetGlobalOp>(it.first);
+        auto access = getAccessType(getGlobalOp);
+        access.hostRead = true;
+        access.hostWrite = true;
+        builder.setInsertionPointAfter(getGlobalOp);
+        add_gpu_alloc(builder, getGlobalOp, access, term);
+      }
     }
 
     // This is the case where the inputs are passed as arguments to the
     // function. This code will add the IR for memory allocation on the device
     // with gpu.alloc and insert a memref.copy from host to device
-    for (const auto &it : gpuBufferParams) {
-      auto param = block.getArgument(it.first);
-      auto access = getAccessType(param);
-      access.hostRead = true;
-      access.hostWrite = true;
-      builder.setInsertionPointToStart(&block);
-      add_gpu_alloc(builder, param, access, term);
+    if (getBoolFromEnv("GPU_ALLOC_ALL", true)) {
+      for (const auto &it : gpuBufferParams) {
+        auto param = block.getArgument(it.first);
+        auto access = getAccessType(param);
+        access.hostRead = true;
+        access.hostWrite = true;
+        builder.setInsertionPointToStart(&block);
+        add_gpu_alloc(builder, param, access, term);
+      }
     }
 
     // CallOp Case: This is the case where the memref producer is coming
     // from a callOp. This code will add the IR for memory allocation on
     // the device with gpu.alloc and insert a memref.copy from the result
     // of that call op to device.
-    for (auto &it : callOpReturnedBuffer) {
-      auto op = mlir::cast<mlir::func::CallOp>(it.first);
-      mlir::Value callOp = op.getResult(0);
-      AccessType access;
-      access.deviceRead = true;
-      access.deviceWrite = false;
-      access.hostRead = true;
-      access.hostWrite = true;
-      builder.setInsertionPointAfter(op);
-      add_gpu_alloc(builder, callOp, access, term);
+    if (getBoolFromEnv("GPU_ALLOC_ALL", true)) {
+        for (auto &it : callOpReturnedBuffer) {
+        auto op = mlir::cast<mlir::func::CallOp>(it.first);
+        mlir::Value callOp = op.getResult(0);
+        AccessType access;
+        access.deviceRead = true;
+        access.deviceWrite = false;
+        access.hostRead = true;
+        access.hostWrite = true;
+        builder.setInsertionPointAfter(op);
+        add_gpu_alloc(builder, callOp, access, term);
+        }
     }
   }
 
