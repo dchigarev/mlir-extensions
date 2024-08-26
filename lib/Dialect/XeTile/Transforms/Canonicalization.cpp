@@ -278,14 +278,12 @@ struct VectorMultiReductionToXeTileReduce
       return mlir::failure();
     // If result is not 1D, we can not convert it to xetile.reduce. This
     // requires that the reduction dimensions has rank 1.
-    auto reductionDims = op.getReductionDims().getValue();
+    auto reductionDims = op.getReductionDims();
     if (reductionDims.size() != 1)
       return mlir::failure();
 
     // Create an equivalent XeTileReduceOp
-    int64_t reduceDim = llvm::cast<mlir::IntegerAttr>(reductionDims[0])
-                            .getValue()
-                            .getSExtValue();
+    int64_t reduceDim = reductionDims[0];
     auto resultTy = llvm::cast<mlir::VectorType>(op.getType());
     auto xetileResultTy = mlir::VectorType::get(
         (reduceDim == 0 ? llvm::ArrayRef<int64_t>({1, resultTy.getDimSize(0)})
