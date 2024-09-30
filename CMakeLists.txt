@@ -267,6 +267,8 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 # Generated IMEX headers
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/include)
 message(STATUS "LLVM_DEFINITIONS: ${LLVM_DEFINITIONS}")
+get_property(existing_compile_definitions DIRECTORY PROPERTY COMPILE_DEFINITIONS)
+message(STATUS "EXISTING COMPILE DEFS AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA: ${existing_compile_definitions}")
 add_definitions(${LLVM_DEFINITIONS})
 
 set(LLVM_LIT_ARGS "-sv" CACHE STRING "lit default options")
