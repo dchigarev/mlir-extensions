@@ -104,7 +104,7 @@ def BF16ToGPU : Pass<"bf16-to-gpu", "::mlir::ModuleOp"> {
     and f32 dtype that can be lowered to spirv dialect with Intel spirv extension ops.
     bf16 is bitcast to a bitwidth equal type i16 as bf16 is not a supported type
     in spirv.
-    Computation is replace by first extending bf16 to f32, do the compute in f32
+    Computation is replaced by first extending bf16 to f32, do the compute in f32
     and truncate result back to bf16.
   }];
   let constructor = "imex::createBF16ToGPUPass()";
@@ -129,6 +129,22 @@ def CastIndex : Pass<"cast-index", "::mlir::ModuleOp"> {
     ];
 }
 
+def EmulateNonNativeBF16 : Pass<"imex-emulate-non-native-bf16", "::mlir::gpu::GPUModuleOp"> {
+  let summary = "transform gpu.func with bf16 emulation (upconvert and downconvert) for ops that are not natively supported";
+  let description = [{
+    This pass transforms a set of operations inside gpu.func
+    whose respective lowered SPIR-V ops do not support bf16 data type natively.
+    For the unsupported ops, computation is replaced by first extending bf16 to f32,
+    do the compute in f32 and truncate result back to bf16 when appropiate.
+  }];
+  let constructor = "imex::createEmulateNonNativeBF16Pass()";
+  let dependentDialects = [
+    "::mlir::gpu::GPUDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect"
+    ];
+}
+
 def RemoveTemporaries : Pass<"imex-remove-temporaries"> {
   let summary = "Remove redundant memref.alloc and memref.copy operations";
   let description = [{
@@ -142,15 +158,6 @@ def RemoveTemporaries : Pass<"imex-remove-temporaries"> {
 def VectorLinearize : Pass<"imex-vector-linearize"> {
   let summary = "Linearizes ND vectors into 1D for N >= 2";
   let constructor = "imex::createVectorLinearizePass()";
-  let dependentDialects = [
-    "::mlir::vector::VectorDialect"
-  ];
-}
-
-def PropagatePackedLayout : Pass<"imex-propagate-packed-layout"> {
-  let summary = "Propagate packed layout (i.e. VNNI) through ops";
-  let constructor = "imex::createPropagatePackedLayoutPass()";
-
   let dependentDialects = [
     "::mlir::vector::VectorDialect"
   ];

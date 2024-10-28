@@ -50,14 +50,14 @@ module @gemm attributes {gpu.container_module} {
       %row_1_store = arith.select %row_mask, %row_1_loaded, %user_val : vector<16xi1>, vector<16xf32>
       xegpu.store %row_1_store, %row_1_out_td, %store_mask : vector<16xf32>, !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16xi1>
 
-      %row_2_in_td = xegpu.update_offset %row_1_in_td, %offset_step : !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16xindex> -> !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>
-      %row_2_out_td = xegpu.update_offset %row_1_out_td, %offset_step : !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16xindex> -> !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>
+      %row_2_in_td = xegpu.update_offset %row_1_in_td, %offset_step : !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16xindex>
+      %row_2_out_td = xegpu.update_offset %row_1_out_td, %offset_step : !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16xindex>
       %row_2_loaded = xegpu.load %row_2_in_td, %row_mask : !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16xi1> -> vector<16xf32>
       %row_2_store = arith.select %row_mask, %row_2_loaded, %user_val : vector<16xi1>, vector<16xf32>
       xegpu.store %row_2_store, %row_2_out_td, %store_mask : vector<16xf32>, !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16xi1>
 
       // The entire row is out of bounds
-      %row_3_out_td = xegpu.update_offset %row_2_out_td, %offset_step : !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16xindex> -> !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>
+      %row_3_out_td = xegpu.update_offset %row_2_out_td, %offset_step : !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16xindex>
       xegpu.store %user_val, %row_3_out_td, %store_mask : vector<16xf32>, !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16xi1>
       gpu.return
     }

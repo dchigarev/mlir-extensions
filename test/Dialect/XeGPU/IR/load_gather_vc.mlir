@@ -1,8 +1,8 @@
-// RUN: IMEX_XEGPU_PRINT_DEFAULTS=true imex-opt %s | FileCheck %s
+// RUN:  imex-opt %s | FileCheck %s
 // Verify the printed output can be parsed.
-// RUN: IMEX_XEGPU_PRINT_DEFAULTS=true imex-opt %s | IMEX_XEGPU_PRINT_DEFAULTS=true imex-opt | FileCheck %s
+// RUN:  imex-opt %s |  imex-opt | FileCheck %s
 // Verify the generic form can be parsed.
-// RUN: IMEX_XEGPU_PRINT_DEFAULTS=true imex-opt -mlir-print-op-generic %s | IMEX_XEGPU_PRINT_DEFAULTS=true imex-opt | FileCheck %s
+// RUN:  imex-opt -mlir-print-op-generic %s |  imex-opt | FileCheck %s
 
 
 // CHECK-LABEL: func @test_load_gather_vc({{.*}}) {

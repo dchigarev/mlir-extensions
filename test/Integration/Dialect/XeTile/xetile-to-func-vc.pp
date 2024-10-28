@@ -3,7 +3,9 @@ builtin.module(
     gpu.module(xetile-init-duplicate
         xetile-canonicalization
         xetile-blocking
+	cse
         convert-xetile-to-xegpu
+	cse
         imex-xegpu-apply-vnni-transformation)
     cse
     imex-vector-linearize
@@ -13,8 +15,6 @@ builtin.module(
     gpu.module(convert-xegpu-to-vc)
     reconcile-unrealized-casts
     bf16-to-gpu
-    gpu.module(convert-func-to-spirv)
-    gpu.module(convert-vector-to-spirv)
     imex-convert-gpu-to-spirv
     spirv.module(spirv-lower-abi-attrs
              spirv-update-vce)
@@ -23,6 +23,8 @@ builtin.module(
     convert-vector-to-scf
     convert-gpu-to-gpux
     convert-scf-to-cf
+    expand-strided-metadata
+    finalize-memref-to-llvm
     convert-cf-to-llvm
     convert-vector-to-llvm
     convert-index-to-llvm
@@ -30,8 +32,5 @@ builtin.module(
     convert-func-to-llvm
     convert-math-to-llvm
     convert-gpux-to-llvm
-    convert-index-to-llvm
-    expand-strided-metadata
     lower-affine
-    finalize-memref-to-llvm
     reconcile-unrealized-casts)

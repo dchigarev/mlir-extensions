@@ -15,7 +15,6 @@
 //===----------------------------------------------------------------------===//
 #include "imex/Conversion/GPUToSPIRV/GPUToSPIRVPass.h"
 
-#include "../PassDetail.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 
@@ -42,6 +41,13 @@
 #include <mlir/Support/LLVM.h>
 #include <mlir/Transforms/DialectConversion.h>
 
+#include <mlir/Pass/Pass.h>
+
+namespace imex {
+#define GEN_PASS_DEF_CONVERTGPUXTOSPIRV
+#include "imex/Conversion/Passes.h.inc"
+} // namespace imex
+
 namespace imex {
 
 /// Pass to lower GPU Dialect to SPIR-V. The pass only converts the gpu.func ops
@@ -53,7 +59,7 @@ namespace imex {
 /// replace it).
 ///
 /// 2) Lower the body of the spirv::ModuleOp.
-class GPUXToSPIRVPass : public ::imex::ConvertGPUXToSPIRVBase<GPUXToSPIRVPass> {
+class GPUXToSPIRVPass : public impl::ConvertGPUXToSPIRVBase<GPUXToSPIRVPass> {
 public:
   explicit GPUXToSPIRVPass(bool mapMemorySpace)
       : mapMemorySpace(mapMemorySpace) {}
@@ -62,118 +68,6 @@ public:
 private:
   bool mapMemorySpace;
 };
-
-class PrintfOpPattern : public mlir::OpConversionPattern<mlir::gpu::PrintfOp> {
-public:
-  using mlir::OpConversionPattern<mlir::gpu::PrintfOp>::OpConversionPattern;
-  mlir::LogicalResult
-  matchAndRewrite(mlir::gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
-                  mlir::ConversionPatternRewriter &rewriter) const override {
-    auto loc = gpuPrintfOp.getLoc();
-
-    auto funcOp = rewriter.getBlock()
-                      ->getParent()
-                      ->getParentOfType<mlir::spirv::FuncOp>();
-
-    auto moduleOp = funcOp->getParentOfType<mlir::spirv::ModuleOp>();
-
-    const char formatStringPrefix[] = "printfMsg";
-    unsigned stringNumber = 0;
-    mlir::SmallString<16> globalVarName;
-    mlir::spirv::GlobalVariableOp globalVar;
-
-    // formulate spirv global variable name
-    do {
-      globalVarName.clear();
-      (formatStringPrefix + llvm::Twine(stringNumber++))
-          .toStringRef(globalVarName);
-    } while (moduleOp.lookupSymbol(globalVarName));
-
-    auto i8Type = rewriter.getI8Type();
-    auto i32Type = rewriter.getI32Type();
-
-    unsigned scNum = 0;
-    auto createSpecConstant = [&](unsigned value) {
-      auto attr = rewriter.getI8IntegerAttr(value);
-      mlir::SmallString<16> specCstName;
-      (llvm::Twine(globalVarName) + "_sc" + llvm::Twine(scNum++))
-          .toStringRef(specCstName);
-
-      return rewriter.create<mlir::spirv::SpecConstantOp>(
-          loc, rewriter.getStringAttr(specCstName), attr);
-    };
-
-    // define GlobalVarOp with printf format string using SpecConstants
-    // and make composite of SpecConstants
-    {
-      mlir::Operation *parent =
-          mlir::SymbolTable::getNearestSymbolTable(gpuPrintfOp->getParentOp());
-
-      mlir::ConversionPatternRewriter::InsertionGuard guard(rewriter);
-
-      mlir::Block &entryBlock = *parent->getRegion(0).begin();
-      rewriter.setInsertionPointToStart(
-          &entryBlock); // insertion point at module level
-
-      // Create Constituents with SpecConstant to construct
-      // SpecConstantCompositeOp
-      llvm::SmallString<20> formatString(gpuPrintfOp.getFormat());
-      formatString.push_back('\0'); // Null terminate for C
-      mlir::SmallVector<mlir::Attribute, 4> constituents;
-      for (auto c : formatString) {
-        auto cSpecConstantOp = createSpecConstant(c);
-        constituents.push_back(mlir::SymbolRefAttr::get(cSpecConstantOp));
-      }
-
-      // Create specialization constant composite defined via spirv.SpecConstant
-      size_t contentSize = constituents.size();
-      auto globalType = mlir::spirv::ArrayType::get(i8Type, contentSize);
-      mlir::spirv::SpecConstantCompositeOp specCstComposite;
-      mlir::SmallString<16> specCstCompositeName;
-      (llvm::Twine(globalVarName) + "_scc").toStringRef(specCstCompositeName);
-      specCstComposite = rewriter.create<mlir::spirv::SpecConstantCompositeOp>(
-          loc, mlir::TypeAttr::get(globalType),
-          rewriter.getStringAttr(specCstCompositeName),
-          rewriter.getArrayAttr(constituents));
-
-      // Define GlobalVariable initialized from Constant Composite
-      globalVar = rewriter.create<mlir::spirv::GlobalVariableOp>(
-          loc,
-          mlir::spirv::PointerType::get(
-              globalType, mlir::spirv::StorageClass::UniformConstant),
-          globalVarName, mlir::FlatSymbolRefAttr::get(specCstComposite));
-      globalVar->setAttr("Constant", rewriter.getUnitAttr());
-    }
-
-    // Get SSA value of Global variable
-    mlir::Value globalPtr =
-        rewriter.create<mlir::spirv::AddressOfOp>(loc, globalVar);
-
-    mlir::Value fmtStr = rewriter.create<mlir::spirv::BitcastOp>(
-        loc,
-        mlir::spirv::PointerType::get(
-            i8Type, mlir::spirv::StorageClass::UniformConstant),
-        globalPtr);
-
-    // Get printf arguments
-    auto argsRange = adaptor.getArgs();
-    mlir::SmallVector<mlir::Value, 4> printfArgs;
-    printfArgs.reserve(argsRange.size() + 1);
-    printfArgs.append(argsRange.begin(), argsRange.end());
-
-    rewriter.create<mlir::spirv::CLPrintfOp>(loc, i32Type, fmtStr, printfArgs);
-
-    rewriter.eraseOp(gpuPrintfOp);
-
-    return mlir::success();
-  }
-};
-
-void populateGPUPrintfToSPIRVPatterns(mlir::SPIRVTypeConverter &typeConverter,
-                                      mlir::RewritePatternSet &patterns) {
-
-  patterns.add<PrintfOpPattern>(typeConverter, patterns.getContext());
-}
 
 // This op:
 //   vector.create_mask %maskVal : vector<vWidth x i1>
@@ -238,10 +132,47 @@ public:
   }
 };
 
+// This pattern converts vector.from_elements op to SPIR-V CompositeInsertOp
+class VectorFromElementsConversionPattern final
+    : public mlir::OpConversionPattern<mlir::vector::FromElementsOp> {
+public:
+  using OpConversionPattern<mlir::vector::FromElementsOp>::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::vector::FromElementsOp fromElementsOp,
+                  OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    mlir::VectorType vecTy = fromElementsOp.getType();
+    if (vecTy.getRank() > 1)
+      return rewriter.notifyMatchFailure(fromElementsOp,
+                                         "rank > 1 vectors are not supported");
+
+    mlir::Type spirvVecTy = getTypeConverter()->convertType(vecTy);
+    if (!spirvVecTy)
+      return mlir::failure();
+
+    // if the vector is just constructed from one element
+    if (mlir::isa<mlir::spirv::ScalarType>(spirvVecTy)) {
+      rewriter.replaceOp(fromElementsOp, adaptor.getElements()[0]);
+      return mlir::success();
+    }
+
+    auto loc = fromElementsOp.getLoc();
+    mlir::Value result = rewriter.create<mlir::spirv::UndefOp>(loc, spirvVecTy);
+    for (auto [idx, val] : llvm::enumerate(adaptor.getElements())) {
+      result = rewriter.create<mlir::spirv::CompositeInsertOp>(loc, val, result,
+                                                               idx);
+    }
+    rewriter.replaceOp(fromElementsOp, result);
+    return mlir::success();
+  }
+};
+
 void populateVectorToSPIRVPatterns(mlir::SPIRVTypeConverter &typeConverter,
                                    mlir::RewritePatternSet &patterns) {
-  patterns.add<VectorMaskConversionPattern>(typeConverter,
-                                            patterns.getContext());
+  patterns
+      .add<VectorFromElementsConversionPattern, VectorMaskConversionPattern>(
+          typeConverter, patterns.getContext());
 }
 
 static bool isGenericVectorTy(mlir::Type type) {
@@ -307,6 +238,8 @@ void GPUXToSPIRVPass::runOnOperation() {
       fop->walk([&](mlir::arith::BitcastOp bop) {
         if (auto vecTy = llvm::dyn_cast<mlir::VectorType>(bop.getType())) {
           if (vecTy.getElementType().isInteger(16)) {
+            if (!bop.getOperand().getDefiningOp())
+              return ::mlir::WalkResult::skip();
             mlir::arith::TruncFOp inputOp =
                 llvm::dyn_cast<mlir::arith::TruncFOp>(
                     bop.getOperand().getDefiningOp());
@@ -334,6 +267,8 @@ void GPUXToSPIRVPass::runOnOperation() {
             }
           }
         } else if (bop.getType().isInteger(16)) {
+          if (!bop.getOperand().getDefiningOp())
+            return ::mlir::WalkResult::skip();
           mlir::arith::TruncFOp inputOp = llvm::dyn_cast<mlir::arith::TruncFOp>(
               bop.getOperand().getDefiningOp());
           if (inputOp) {
@@ -348,10 +283,20 @@ void GPUXToSPIRVPass::runOnOperation() {
             }
           }
         }
+        return ::mlir::WalkResult::advance();
       });
       fop->walk([&](mlir::arith::ExtFOp eop) {
         if (auto vecTy = llvm::dyn_cast<mlir::VectorType>(eop.getType())) {
           if (vecTy.getElementType().isF32()) {
+            // Check if the extf op is preceded by a bitcast op.
+            // When native bf16 support is enabled, extf is not preceded by a
+            // bitcast op (which is the case for bf16-to-gpu pass path, or
+            // non-native path), and sometimes the operand to the extf may be
+            // coming from not an op but rather an argument passed to a
+            // function, which may cause assert. The check would circumvent that
+            // issue.
+            if (!eop.getOperand().getDefiningOp())
+              return ::mlir::WalkResult::skip();
             mlir::arith::BitcastOp inputOp =
                 llvm::dyn_cast<mlir::arith::BitcastOp>(
                     eop.getOperand().getDefiningOp());
@@ -379,6 +324,8 @@ void GPUXToSPIRVPass::runOnOperation() {
             }
           }
         } else if (eop.getType().isF32()) {
+          if (!eop.getOperand().getDefiningOp())
+            return ::mlir::WalkResult::skip();
           mlir::arith::BitcastOp inputOp =
               llvm::dyn_cast<mlir::arith::BitcastOp>(
                   eop.getOperand().getDefiningOp());
@@ -394,6 +341,7 @@ void GPUXToSPIRVPass::runOnOperation() {
             }
           }
         }
+        return ::mlir::WalkResult::advance();
       });
     });
     target->addDynamicallyLegalOp<mlir::spirv::INTELConvertBF16ToFOp>(
@@ -459,7 +407,6 @@ void GPUXToSPIRVPass::runOnOperation() {
     mlir::populateSCFToSPIRVPatterns(typeConverter, scfToSpirvCtx, patterns);
     mlir::cf::populateControlFlowToSPIRVPatterns(typeConverter, patterns);
     mlir::populateMathToSPIRVPatterns(typeConverter, patterns);
-    imex::populateGPUPrintfToSPIRVPatterns(typeConverter, patterns);
     imex::populateVectorToSPIRVPatterns(typeConverter, patterns);
 
     if (failed(applyFullConversion(gpuModule, *target, std::move(patterns))))

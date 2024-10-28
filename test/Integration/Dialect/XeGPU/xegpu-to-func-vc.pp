@@ -3,8 +3,12 @@
 // spirv dialect (for device code) lowering pipeline.
 // Ready for imex runner starting from GPU dialect.
 builtin.module(
+    gpu.module(imex-xegpu-hoist-transpose,
+        imex-xegpu-apply-vnni-transformation,
+        imex-xegpu-optimize-transpose)
     imex-vector-linearize
     gpu.module(convert-xegpu-to-vc)
+    cse
     reconcile-unrealized-casts
     bf16-to-gpu
     imex-convert-gpu-to-spirv
@@ -15,6 +19,8 @@ builtin.module(
     convert-vector-to-scf
     convert-gpu-to-gpux
     convert-scf-to-cf
+    expand-strided-metadata
+    finalize-memref-to-llvm
     convert-cf-to-llvm
     convert-vector-to-llvm
     convert-index-to-llvm
@@ -22,9 +28,6 @@ builtin.module(
     convert-func-to-llvm
     convert-math-to-llvm
     convert-gpux-to-llvm
-    convert-index-to-llvm
-    expand-strided-metadata
     lower-affine
-    finalize-memref-to-llvm
     reconcile-unrealized-casts)
 // End

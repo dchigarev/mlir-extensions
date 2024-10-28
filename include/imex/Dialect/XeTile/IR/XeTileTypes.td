@@ -117,20 +117,20 @@ def XeTile : XeTile_Type<"Tile", "tile", [ShapedTypeInterface],
       return mlir::DenseI32ArrayAttr::get(getContext(), {1, 0});
     }
 
-    mlir::Attribute getMemoryScope() {
+    mlir::Attribute getMemorySpace() {
       auto encoding = llvm::dyn_cast_if_present<xetile::XeTileAttr>(getEncoding());
       if (encoding)
-        return encoding.getMemoryScope();
+        return encoding.getMemorySpace();
       return mlir::Attribute();
     }
 
-    int getMemoryScopeAsInt() {
+    int getMemorySpaceAsInt() {
       auto encoding = llvm::dyn_cast_if_present<xetile::XeTileAttr>(getEncoding());
-      if (encoding && encoding.getMemoryScope()) {
-        auto memoryScope = encoding.getMemoryScope();
-        assert(mlir::isa<mlir::IntegerAttr>(memoryScope) &&
+      if (encoding && encoding.getMemorySpace()) {
+        auto MemorySpace = encoding.getMemorySpace();
+        assert(mlir::isa<mlir::IntegerAttr>(MemorySpace) &&
               "Using `getMemorySpaceAsInt` with non-Integer attribute");
-        return mlir::cast<mlir::IntegerAttr>(memoryScope).getInt();
+        return mlir::cast<mlir::IntegerAttr>(MemorySpace).getInt();
       }
       // return default value 0 indicating Global memory
       return 0;
@@ -166,7 +166,6 @@ def XeTile_2DOr4DVector: VectorOfRankAndType<[2, 4], [XeTile_ScalarType]>;
 
 // define the attribute type allowed for padding values for load op
 def XeTile_PaddingValueAttr : AnyAttrOf<[I32Attr, F32Attr]>;
-
 
 
 #endif // _XETILE_TYPES_TD_INCLUDED_

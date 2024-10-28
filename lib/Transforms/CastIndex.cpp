@@ -13,17 +13,24 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
+#include "imex/Transforms/Passes.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Index/IR/IndexDialect.h"
 #include "mlir/Dialect/Index/IR/IndexOps.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/TypeUtilities.h"
+
+namespace imex {
+#define GEN_PASS_DEF_CASTINDEX
+#include "imex/Transforms/Passes.h.inc"
+} // namespace imex
 
 using namespace mlir;
 using namespace imex;
 
 namespace {
-struct CastIndexPass : public CastIndexBase<CastIndexPass> {
+struct CastIndexPass : public imex::impl::CastIndexBase<CastIndexPass> {
 
 public:
   void runOnOperation() override {
@@ -63,7 +70,7 @@ public:
           // Replace index type operands with cast op from
           // index to i32 type.
           if (oper.getType().isIndex()) {
-            auto newOp = builder.create<index::CastUOp>(
+            auto newOp = builder.create<index::CastSOp>(
                 o->getLoc(), builder.getI32Type(), oper);
             o->setOperand(idx, newOp);
           }
@@ -74,7 +81,7 @@ public:
             res.setType(builder.getI32Type());
             builder.setInsertionPointAfter(o);
             // Cast i32 type back to index type
-            auto newRes = builder.create<index::CastUOp>(
+            auto newRes = builder.create<index::CastSOp>(
                 o->getLoc(), builder.getIndexType(), res);
             // Replace all uase of result with new cast op
             res.replaceAllUsesExcept(newRes, newRes);

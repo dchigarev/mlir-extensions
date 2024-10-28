@@ -21,9 +21,9 @@ func.func @test_update_offset_VC(%src: ui64, %offsets : vector<16 x index>) {
   %3 = arith.constant dense<16>: vector<16 x index>
 
   // CHECK: xegpu.update_offset
-  // CHECK-SAME: !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16xindex> -> !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>
+  // CHECK-SAME: !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16xindex>
   %5 = xegpu.update_offset %1, %3
-      : !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16 x index> -> !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>
+      : !xegpu.tensor_desc<16xf32, #xegpu.scatter_tdesc_attr<>>, vector<16 x index>
 
   return
 }

@@ -147,7 +147,24 @@ public:
       return mlir::success();
     }
 
+    // for non-cast elementwise ops only. Propagation is stopped
+    // when meet an cast op, e.g., truncf, in which source and result
+    // needs different vnni factors. An exception is bitcast op, which
+    // source and results has the same bitwidth.
     if (mlir::OpTrait::hasElementwiseMappableTraits(op)) {
+      // stop propagation for cast ops that are not guaranteed
+      // to have same bitwidth between source and result.
+      if (mlir::isa<mlir::CastOpInterface>(op)) {
+        auto srcTy = mlir::getElementTypeOrSelf(op->getOperand(0));
+        auto dstTy = mlir::getElementTypeOrSelf(op->getResult(0));
+        if (!srcTy.isIntOrFloat() || !dstTy.isIntOrFloat() ||
+            srcTy.getIntOrFloatBitWidth() != dstTy.getIntOrFloatBitWidth()) {
+          for (auto operand : operands)
+            propagateIfChanged(operand, operand->join(Layout(false)));
+          return mlir::success();
+        }
+      }
+
       Layout layout;
 
       // if the op has results, initial the layout to be vnni
@@ -207,6 +224,7 @@ public:
     // Unknown ops: mark all args as non-vnni layout (no layout change).
     for (auto operand : operands)
       propagateIfChanged(operand, operand->join(Layout(false)));
+
     return mlir::success();
   }
 
@@ -368,7 +386,7 @@ static void updateDpasOp(mlir::OpBuilder &builder, mlir::xegpu::DpasOp &op,
   auto rhs = op.getRhs();
   // B operand of DPAS has multiple uses and
   // the rest uses don't use vnni.
-  if (!analysis.getLayout(rhs)) {
+  if (!analysis.getLayout(rhs) && isVNNIApplicable(rhs.getType())) {
     builder.setInsertionPoint(op);
     auto cast = mlir::cast<mlir::TypedValue<mlir::VectorType>>(rhs);
     auto &&[newRhs, root] = applyVnniTransform(builder, cast);

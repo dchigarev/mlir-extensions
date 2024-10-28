@@ -206,7 +206,7 @@ lowerUnpackOrPack(XeOneToNPatternRewriter &rewriter, mlir::Operation *op,
       for (auto i = 0; i < inGrids[0]; i++) {
         auto idx = i * inGrids[1] + j;
         valSet.push_back(inputs[idx]);
-        if (valSet.size() == (size_t)nums) {
+        if (valSet.size() == static_cast<size_t>(nums)) {
           auto newOp =
               mergeVectorsWrapper(valSet, stack, op->getLoc(), rewriter);
           intermediates[i / nums * inGrids[1] + j] = newOp;
@@ -407,9 +407,9 @@ class SgInitTileOpPattern : public XeOneToNConversion<xetile::InitTileOp> {
     auto shape = llvm::to_vector(tileTy.getShape());
     auto indexType = rewriter.getIndexType();
 
-    auto memoryScope = op.getSourceMemorySpaceAsInt() == 3
-                           ? mlir::xegpu::MemoryScope::SLM
-                           : mlir::xegpu::MemoryScope::Global;
+    auto MemorySpace = op.getSourceMemorySpaceAsInt() == 3
+                           ? mlir::xegpu::MemorySpace::SLM
+                           : mlir::xegpu::MemorySpace::Global;
 
     if (tileTy.getRank() != 2)
       return op.emitOpError("The tile shape should be 2D.");
@@ -454,7 +454,7 @@ class SgInitTileOpPattern : public XeOneToNConversion<xetile::InitTileOp> {
     auto offsetsX = offsets.pop_back_val();
 
     auto tDescTy = mlir::xegpu::TensorDescType::get(
-        innerBlk, elemTy, array_length, true /*boundary_check*/, memoryScope);
+        innerBlk, elemTy, array_length, true /*boundary_check*/, MemorySpace);
 
     auto createIndexConstant = [&](mlir::Type type, int64_t value) {
       auto attr = rewriter.getIndexAttr(value);
@@ -545,7 +545,7 @@ struct SgPrefetchTileOpPattern
     auto shape = tileTy.getShape();
     auto expectedNumTensorDescs =
         (shape[0] / innerBlocks[0]) * (shape[1] / innerBlocks[1]);
-    if (expectedNumTensorDescs != (int64_t)tiles.size()) {
+    if (expectedNumTensorDescs != static_cast<int64_t>(tiles.size())) {
       op.emitOpError("Failed to lower LoadTileOp because shape[0] * shape[1] "
                      "!= sources.size().");
       return mlir::failure();
@@ -1090,33 +1090,54 @@ struct SgVectorCreateMaskOpPattern : public XeOneToNConversion<CreateMaskOp> {
       return mlir::failure();
     }
 
-    // See assumptions about the supported create_mask op in
-    // VectorCreateMaskOpPattern in Blocking.cpp. The second and forth operands
-    // are the same. This value is the mask of the inner dimension of the
-    // original shape. Different masks are created based on the new inner
-    // dimension size.
     mlir::Location loc = op->getLoc();
     auto shape = resType.getShape();
-    auto one = rewriter.create<mlir::arith::ConstantIndexOp>(loc, 1);
-    llvm::SmallVector<llvm::SmallVector<mlir::Value>> newOperands;
-    mlir::Value mask = adaptor.getOperands()[3][0];
-    auto innerDimSize =
-        rewriter.create<mlir::arith::ConstantIndexOp>(loc, shape[3]);
-    for (int j = 0; j < shape[1]; ++j) {
-      newOperands.push_back({one, mask});
-      mask = rewriter.create<mlir::arith::SubIOp>(loc, mask, innerDimSize);
+    if (shape[2] != 1) {
+      op.emitOpError() << "Unsupported inner block sizes";
+      return mlir::failure();
     }
-
-    llvm::SmallVector<mlir::Value> newOps;
     auto newTy =
         mlir::VectorType::get({shape[2], shape[3]}, resType.getElementType());
-    for (int i = 0; i < shape[0]; ++i) {
+    llvm::SmallVector<mlir::Value> newOps;
+    mlir::Value ub0 = adaptor.getOperands()[0][0];
+    auto constDef = ub0.getDefiningOp<mlir::arith::ConstantIndexOp>();
+    if (constDef && constDef.value() == shape[0]) {
+      // Case 1: all rows are enabled.
+      // See assumptions about the supported create_mask op in
+      // VectorCreateMaskOpPattern in xetile blocking pass. The second and forth
+      // operands are the same. This value is the mask of the inner dimension of
+      // the original shape. Different masks are created based on the new inner
+      // dimension size.
+      auto one = rewriter.create<mlir::arith::ConstantIndexOp>(loc, 1);
+      llvm::SmallVector<llvm::SmallVector<mlir::Value>> newOperands;
+      mlir::Value mask = adaptor.getOperands()[3][0];
+      auto innerDimSize =
+          rewriter.create<mlir::arith::ConstantIndexOp>(loc, shape[3]);
       for (int j = 0; j < shape[1]; ++j) {
-        auto newOp =
-            rewriter.create<CreateMaskOp>(op.getLoc(), newTy, newOperands[j]);
-        newOps.push_back(newOp);
+        newOperands.push_back({one, mask});
+        mask = rewriter.create<mlir::arith::SubIOp>(loc, mask, innerDimSize);
+      }
+
+      for (int i = 0; i < shape[0]; ++i) {
+        for (int j = 0; j < shape[1]; ++j) {
+          auto newOp =
+              rewriter.create<CreateMaskOp>(op.getLoc(), newTy, newOperands[j]);
+          newOps.push_back(newOp);
+        }
+      }
+
+    } else {
+      // Case 2: all columns are enabled.
+      for (int i = 0; i < shape[0]; ++i) {
+        auto elemIndex = rewriter.create<mlir::arith::ConstantIndexOp>(loc, i);
+        auto cmp = rewriter.create<mlir::arith::CmpIOp>(
+            loc, mlir::arith::CmpIPredicate::slt, elemIndex, ub0);
+        auto bcast = rewriter.create<mlir::vector::SplatOp>(loc, newTy, cmp);
+        for (int j = 0; j < shape[1]; ++j)
+          newOps.push_back(bcast);
       }
     }
+
     rewriter.replaceOp(op, newOps);
     return mlir::success();
   }
@@ -1143,6 +1164,7 @@ void populateXeTileOpConversionPatterns(imex::XeOneToNTypeConverter &converter,
                   ElementWiseOpPattern<mlir::math::RsqrtOp, 1>,
                   ElementWiseOpPattern<mlir::math::ErfOp, 1>,
                   ElementWiseOpPattern<mlir::arith::AddFOp, 2>,
+                  ElementWiseOpPattern<mlir::arith::AndIOp, 2>,
                   ElementWiseOpPattern<mlir::arith::RemFOp, 2>,
                   ElementWiseOpPattern<mlir::arith::DivFOp, 2>,
                   ElementWiseOpPattern<mlir::arith::MulFOp, 2>,

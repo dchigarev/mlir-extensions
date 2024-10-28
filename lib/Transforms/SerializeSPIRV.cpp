@@ -13,8 +13,7 @@
 /// string attribute to the corresponding gpu module.
 ///
 //===----------------------------------------------------------------------===//
-
-#include "PassDetail.h"
+#include "imex/Transforms/Passes.h"
 #include "imex/Utils/GPUSerialize.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
@@ -22,11 +21,19 @@
 #include "mlir/Dialect/SPIRV/IR/SPIRVOps.h"
 #include "mlir/Target/SPIRV/Serialization.h"
 
+#include <fstream>
+
+namespace imex {
+#define GEN_PASS_DEF_SERIALIZESPIRVPASS
+#include "imex/Transforms/Passes.h.inc"
+} // namespace imex
+
 using namespace mlir;
 using namespace imex;
 
 namespace {
-struct SerializeSPIRVPass : public SerializeSPIRVPassBase<SerializeSPIRVPass> {
+struct SerializeSPIRVPass
+    : public imex::impl::SerializeSPIRVPassBase<SerializeSPIRVPass> {
 public:
   void runOnOperation() override {
     auto mod = getOperation();
@@ -61,6 +68,22 @@ public:
                           spvBinary.size() * sizeof(uint32_t));
       auto spvAttr = mlir::StringAttr::get(&getContext(), spvData);
       gpuMod->setAttr(imex::gpuBinaryAttrName, spvAttr);
+
+      // write the SPIR-V binary to a file
+      // can be used to generate human readable SPIR-V code
+      // @TODO: need to decide where would we want to write the binary to
+      // currently writing to the present working directory
+      if (getenv("IMEX_DUMP_SPIRV_BINARY")) {
+        auto spvModName = spvMod.getName();
+        // No need for extra check on spvModName, the check is done before
+        spvModName->consume_front("__spv__");
+        std::ofstream ofs(spvModName->str().append(".spv"),
+                          std::ofstream::binary);
+        if (ofs) {
+          ofs << spvData.str();
+          ofs.close();
+        }
+      }
       spvMod->erase();
     }
   }
