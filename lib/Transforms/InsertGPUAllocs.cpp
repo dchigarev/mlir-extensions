@@ -277,8 +277,18 @@ public:
     // address space.
     auto isGpuAddrSpace = [&](mlir::Value memref) {
       if (auto type = mlir::dyn_cast<mlir::MemRefType>(memref.getType())) {
-        return mlir::isa_and_nonnull<mlir::gpu::AddressSpaceAttr>(
+        auto gpuAttrG = mlir::isa_and_nonnull<mlir::gpu::AddressSpaceAttr>(
             type.getMemorySpace());
+        if (gpuAttrG)
+          return true;
+        auto memorySpaceAttr = type.getMemorySpace();
+        if (!memorySpaceAttr)
+          return false;
+        auto gpuAttr = mlir::dyn_cast<mlir::IntegerAttr>(memorySpaceAttr);
+        if (!gpuAttr)
+          return false;
+        
+        return gpuAttr.getValue() == 3;
       }
       return false;
     };
@@ -410,6 +420,8 @@ public:
     if (m_clientAPI == "opencl") {
       for (const auto &it : gpuBufferAllocs) {
         auto alloc = mlir::cast<mlir::memref::AllocOp>(it.first);
+        if (isGpuAddrSpace(alloc))
+          continue;
         auto access = getAccessType(alloc);
         auto loc = alloc.getLoc();
         builder.setInsertionPoint(alloc);
